@@ -158,7 +158,7 @@ def duckypad_connect():
         elif 'linux' in sys.platform:
             messagebox.showinfo("Info", "duckyPad detected, but please run me in sudo!")
         return
-    
+
     if len(all_dp_info_list) == 0:
         connection_info_str.set("duckyPad not found")
         return
@@ -170,28 +170,32 @@ def duckypad_connect():
         selected_index = ask_user_to_select_a_duckypad(all_dp_info_list)
     if selected_index == -1:
         return
-    
+
     user_selected_dp = all_dp_info_list[selected_index]
     print("user selected:", user_selected_dp)
 
-    if dpp_is_fw_compatible(user_selected_dp) is False:
+    if not dpp_is_fw_compatible(user_selected_dp):
         return
 
-    if open_hid_path(user_selected_dp, myh) is False:
+    if not open_hid_path(user_selected_dp):
         return
+
     THIS_DUCKYPAD.device_type = user_selected_dp['dp_model']
     THIS_DUCKYPAD.info_dict = user_selected_dp
     connection_info_str.set(f"Connected!      Model: {dp_model_lookup.get(THIS_DUCKYPAD.device_type)}      Serial: {THIS_DUCKYPAD.info_dict.get('serial')}      Firmware: {THIS_DUCKYPAD.info_dict.get('fw_version')}")
 
-def open_hid_path(dp_info_dict, hid_obj):
-    hid_obj.close()
+def open_hid_path(dp_info_dict):
     try:
-        hid_obj.open_path(dp_info_dict['hid_path'])
+        h = hid.device()
+        h.open_path(dp_info_dict['hid_path'])
+        h.close()
         return True
     except Exception as e:
+        print("[ERROR] open_hid_path failed:", e)
         if "already open" in str(e).lower():
             return True
-    return False
+        return False
+
 
 def update_windows(textbox):
     windows_str = 'Application' + ' '*14 + "Window Title\n"
@@ -214,32 +218,49 @@ HID_COMMAND_NEXT_PROFILE = 3
 HID_COMMAND_GOTO_PROFILE_BY_NAME = 23
 
 def hid_reconnect(dp_dict):
-    dp_list = scan_duckypads() # scan again because HID path might have changed
-    if dp_list is None or len(dp_list) == 0:
+    dp_list = scan_duckypads()
+    if not dp_list:
         return
-    new_info_dict = []
     for this_dp in dp_list:
         if this_dp["serial"] == dp_dict["serial"]:
-            new_info_dict.append(this_dp)
-    if len(new_info_dict) == 0:
-        return
-    print("hid_reconnect:", new_info_dict[0])
-    open_hid_path(new_info_dict[0], myh)
+            try:
+                h = hid.device()
+                h.open_path(this_dp['hid_path'])
+                h.close()
+                return
+            except Exception as e:
+                print("[ERROR] hid_reconnect failed:", e)
+
 
 def duckypad_write_with_retry(data_buf):
     try:
-        hid_txrx(data_buf, myh)
+        h = hid.device()
+        h.open_path(THIS_DUCKYPAD.info_dict['hid_path'])
+        hid_txrx(data_buf, h)
+        h.close()
         return DP_WRITE_OK
     except Exception as e:
-        print(e)
+        print("[ERROR] First write failed:", e)
+        try:
+            h.close()
+        except:
+            pass
 
     try:
         print("SECOND TRY")
         hid_reconnect(THIS_DUCKYPAD.info_dict)
-        hid_txrx(data_buf, myh)
+        h = hid.device()
+        h.open_path(THIS_DUCKYPAD.info_dict['hid_path'])
+        hid_txrx(data_buf, h)
+        h.close()
         return DP_WRITE_OK
     except Exception as e:
-        print(e)
+        print("[ERROR] Second write failed:", e)
+        try:
+            h.close()
+        except:
+            pass
+
     print("FAILED")
     return DP_WRITE_FAIL
     
